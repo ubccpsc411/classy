@@ -91,7 +91,7 @@ export class DefaultStudentView extends AbstractStudentView {
 
         let projectTeam = null;
         for (const team of teams) {
-            if (team.delivId === "project") {
+            if (team.delivId === "teams") {
                 projectTeam = team;
             }
         }
@@ -130,8 +130,8 @@ export class DefaultStudentView extends AbstractStudentView {
         const otherId = UI.getTextFieldValue('studentSelectPartnerText');
         const myGithubId = this.getStudent().githubId;
         const payload: TeamFormationTransport = {
-            delivId:   'project', // only one team in cs310 (and it is always called project)
-            githubIds: [myGithubId, otherId]
+            delivId:   'teams', // only one team in cs310 (and it is always called project)
+            githubIds: [myGithubId, ...otherId.split(",").map((n) => n.trim())]
         };
         const url = this.remote + '/portal/team';
         const options: any = this.getOptions();
