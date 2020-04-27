@@ -1,4 +1,6 @@
-import * as rp from "request-promise-native";
+import * as https from "https";
+import fetch, {RequestInit} from "node-fetch";
+
 import Config, {ConfigKey} from "../../../../common/Config";
 import Log from "../../../../common/Log";
 import Util from "../../../../common/Util";
@@ -24,6 +26,8 @@ export interface IGitHubController {
 
     createPullRequest(repo: Repository, prName: string): Promise<boolean>;
 
+    updateBranchProtection(repo: Repository, rules: BranchRule[]): Promise<boolean>;
+
     getRepositoryUrl(repo: Repository): Promise<string>;
 
     getTeamUrl(team: Team): Promise<string>;
@@ -32,6 +36,11 @@ export interface IGitHubController {
 export interface GitTeamTuple {
     teamName: string;
     githubTeamNumber: number;
+}
+
+export interface BranchRule {
+    name: string;
+    reviews: number;
 }
 
 export class GitHubController implements IGitHubController {
@@ -343,6 +352,17 @@ export class GitHubController implements IGitHubController {
         return false;
     }
 
+    public async updateBranchProtection(repo: Repository, rules: BranchRule[]): Promise<boolean> {
+        Log.info("GitHubController::updateBranchProtection(", repo.id, ", ...) - start");
+        if (!await this.gha.repoExists(repo.id)) {
+            throw new Error("GitHubController::updateBranchProtection() - " + repo.id + " did not exist");
+        }
+        const successes = await Promise.all(rules.map((r) => this.gha.addBranchProtectionRule(repo.id, r)));
+        const allSuccess = successes.reduce((a, b) => a && b, true);
+        Log.info("GitHubController::updateBranchProtection(", repo.id, ") - All rules added successfully:", allSuccess);
+        return allSuccess;
+    }
+
     /**
      * Calls the patchtool
      * @param {Repository} repo: Repo to be patched
@@ -363,20 +383,19 @@ export class GitHubController implements IGitHubController {
         const baseUrl: string = Config.getInstance().getProp(ConfigKey.patchToolUrl);
         const patchUrl: string = `${baseUrl}/autopatch`;
         const updateUrl: string = `${baseUrl}/update`;
-        const qs: {[key: string]: string | boolean} = {
-            patch_id: prName, github_url: `${repo.URL}.git`, dryrun: dryrun, from_beginning: root
-        };
+        const qs: string = Util.getQueryStr({
+            patch_id: prName, github_url: `${repo.URL}.git`, dryrun: String(dryrun), from_beginning: String(root)
+        });
 
-        const options = {
+        const options: RequestInit = {
             method:             'POST',
-            rejectUnauthorized: false,
-            strictSSL:          false
+            agent:              new https.Agent({ rejectUnauthorized: false })
         };
 
         let result;
 
         try {
-            await rp(patchUrl, {qs, ...options});
+            await fetch(patchUrl + qs, options);
             Log.info("GitHubController::createPullRequest(..) - Patch applied successfully");
             return true;
         } catch (err) {
@@ -387,9 +406,9 @@ export class GitHubController implements IGitHubController {
             case 424:
                 Log.info(`GitHubController::createPullRequest(..) - ${prName} wasn't found by the patchtool. Updating patches.`);
                 try {
-                    await rp(updateUrl, options);
+                    await fetch(updateUrl, options);
                     Log.info(`GitHubController::createPullRequest(..) - Patches updated successfully. Retrying.`);
-                    await rp(patchUrl, {qs, ...options});
+                    await fetch(patchUrl + qs, {...options});
                     Log.info("GitHubController::createPullRequest(..) - Patch applied successfully on second attempt");
                     return true;
                 } catch (err) {
@@ -490,6 +509,11 @@ export class TestGitHubController implements IGitHubController {
 
     public async createPullRequest(repo: Repository, prName: string): Promise<boolean> {
         Log.warn("TestGitHubController::createPullRequest(..) - TEST");
+        return true;
+    }
+
+    public async updateBranchProtection(repo: Repository, rules: BranchRule[]): Promise<boolean> {
+        Log.warn("TestGitHubController::updateBranchProtection(..) - TEST");
         return true;
     }
 }

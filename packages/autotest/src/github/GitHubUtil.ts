@@ -1,4 +1,4 @@
-import * as rp from "request-promise-native";
+import fetch, {RequestInit} from 'node-fetch';
 
 import Config, {ConfigKey} from "../../../common/Config";
 import Log from "../../../common/Log";
@@ -73,13 +73,8 @@ export class GitHubUtil {
         return parsedDelivId;
     }
 
-    public static parseCommandFromComment(message: any, cmd: string): boolean {
-        if (message.indexOf(`#${cmd}`) >= 0) {
-            Log.trace(`GitHubUtil::parseCommandFromComment() - input: ${message}; ${cmd}: true`);
-            return true;
-        }
-        Log.trace(`GitHubUtil::parseCommandFromComment() - input: ${message}; ${cmd}: false`);
-        return false;
+    public static parseCommandsFromComment(message: string): string[] {
+        return [...new Set(message.match(/#[a-zA-Z0-9]+/g) || [])];
     }
 
     /**
@@ -115,12 +110,7 @@ export class GitHubUtil {
 
             Log.info("GitHubUtil::processComment(..) - 2");
 
-            const flags: string[] = [];
-            for (const command of ['force', 'silent', 'check', 'schedule', 'unschedule']) {
-                if (GitHubUtil.parseCommandFromComment(message, command)) {
-                    flags.push(`#${command}`);
-                }
-            }
+            const flags: string[] = GitHubUtil.parseCommandsFromComment(message);
 
             const botName = "@" + Config.getInstance().getProp(ConfigKey.botName).toLowerCase();
             const botMentioned: boolean = message.toLowerCase().indexOf(botName) >= 0;
@@ -286,7 +276,7 @@ export class GitHubUtil {
                 message.url + "; message: " + loggingMessage);
 
             const body: string = JSON.stringify({body: message.message});
-            const options: any = {
+            const options: RequestInit = {
                 method:  "POST",
                 headers: {
                     "Content-Type":  "application/json",
@@ -298,7 +288,7 @@ export class GitHubUtil {
 
             if (Config.getInstance().getProp(ConfigKey.postback) === true) {
                 try {
-                    await rp(message.url, options);
+                    await fetch(message.url, options);
                     Log.info("GitHubUtil::postMarkdownToGithub(..) - success for url: " + message.url);
                 } catch (err) {
                     Log.error("GitHubUtil::postMarkdownToGithub(..) - ERROR: " + err);

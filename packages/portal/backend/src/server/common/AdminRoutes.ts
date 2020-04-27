@@ -1,7 +1,8 @@
 import * as cookie from 'cookie';
-
-import * as rp from "request-promise-native";
+import * as https from 'https';
+import fetch, {RequestInit} from "node-fetch";
 import * as restify from 'restify';
+
 import Config, {ConfigKey} from "../../../../../common/Config";
 
 import Log from "../../../../../common/Log";
@@ -37,6 +38,7 @@ import {TeamController} from "../../controllers/TeamController";
 import {Factory} from "../../Factory";
 import {ClasslistAgent} from "./ClasslistAgent";
 
+import {ResultsKind} from "../../controllers/ResultsController";
 import IREST from "../IREST";
 import {CSVParser} from "./CSVParser";
 
@@ -62,6 +64,8 @@ export default class AdminRoutes implements IREST {
         server.get('/portal/admin/export/dashboard/:delivId/:repoId',
             AdminRoutes.isPrivileged, AdminRoutes.getDashboardAll); // no num limit
         server.get('/portal/admin/results/:delivId/:repoId', AdminRoutes.isPrivileged, AdminRoutes.getResults); // result summaries
+        server.get('/portal/admin/gradedResults/:delivId', AdminRoutes.isPrivileged, AdminRoutes.getGradedResults); // Graded results
+        server.get('/portal/admin/bestResults/:delivId', AdminRoutes.isPrivileged, AdminRoutes.getBestResults); // Results with best score
 
         // admin-only functions
         server.post('/portal/admin/classlist', AdminRoutes.isAdmin, AdminRoutes.postClasslist);
@@ -296,6 +300,46 @@ export default class AdminRoutes implements IREST {
             return next();
         }).catch(function(err) {
             return AdminRoutes.handleError(400, 'Unable to retrieve results. ERROR: ' + err.message, res, next);
+        });
+    }
+
+    /**
+     * Returns AutoTestResultPayload[]
+     */
+    private static getGradedResults(req: any, res: any, next: any) {
+        Log.trace('AdminRoutes::getGradedResults(..) - start');
+        const start = Date.now();
+        const cc = new AdminController(AdminRoutes.ghc);
+
+        const delivId = req.params.delivId;
+
+        cc.getDashboard(delivId, 'any', Number.MAX_SAFE_INTEGER, ResultsKind.GRADED).then((results) => {
+            Log.info('AdminRoutes::getGradedResults(..) - done; # results: ' + results.length + '; took: ' + Util.took(start));
+            const payload: AutoTestResultSummaryPayload = {success: results};
+            res.send(payload);
+            return next();
+        }).catch((err) => {
+            return AdminRoutes.handleError(400, 'Unable to retrieve graded results. ERROR: ' + err.message, res, next);
+        });
+    }
+
+    /**
+     * Returns AutoTestResultPayload[]
+     */
+    private static getBestResults(req: any, res: any, next: any) {
+        Log.trace('AdminRoutes::getBestResults(..) - start');
+        const start = Date.now();
+        const cc = new AdminController(AdminRoutes.ghc);
+
+        const delivId = req.params.delivId;
+
+        cc.getDashboard(delivId, 'any', Number.MAX_SAFE_INTEGER, ResultsKind.BEST).then((results) => {
+            Log.info('AdminRoutes::getBestResults(..) - done; # results: ' + results.length + '; took: ' + Util.took(start));
+            const payload: AutoTestResultSummaryPayload = {success: results};
+            res.send(payload);
+            return next();
+        }).catch((err) => {
+            return AdminRoutes.handleError(400, 'Unable to retrieve highest results. ERROR: ' + err.message, res, next);
         });
     }
 
@@ -1185,18 +1229,16 @@ export default class AdminRoutes implements IREST {
     private static updatePatches(req: any, res: any, next: any) {
         Log.trace('AdminRoutes::updatePatches(..) - start');
         const start = Date.now();
-
         const url = Config.getInstance().getProp(ConfigKey.patchToolUrl) + "/update";
-        const opts: rp.RequestPromiseOptions = {
-            rejectUnauthorized: false,
-            strictSSL:          false,
-            method:             'post'
+        const opts2: RequestInit = {
+            method:             'post',
+            agent:              new https.Agent({ rejectUnauthorized: false })
         };
-
-        rp(url, opts).then((result) => {
-            Log.info('AdminRoutes::updatePatches(..) - done; took: ' + Util.took(start));
-            res.send({success: "patches updated"});
-            return next();
+        fetch(url)
+            .then((result) => {
+                Log.info('AdminRoutes::updatePatches(..) - done; took: ' + Util.took(start));
+                res.send({success: "patches updated"});
+                return next();
         }).catch((err) => {
             return AdminRoutes.handleError(400, 'Unable to update patches. Error: ' + err.message, res, next);
         });
@@ -1207,15 +1249,14 @@ export default class AdminRoutes implements IREST {
         const start = Date.now();
 
         const url = Config.getInstance().getProp(ConfigKey.patchToolUrl) + "/patches";
-        const opts: rp.RequestPromiseOptions = {
-            rejectUnauthorized: false,
-            strictSSL:          false,
-            method:             'get'
+        const opts: RequestInit = {
+            method:             'get',
+            agent:              new https.Agent({ rejectUnauthorized: false })
         };
 
-        rp(url, opts).then((result) => {
+        fetch(url, opts).then(async (result) => {
             try {
-                const patches = JSON.parse(result).message;
+                const patches = (await result.json()).message;
                 Log.info('AdminRoutes::listPatches(..) - done; ' + patches.length + ' patch' +
                     (patches.length === 1 ? '' : 'es') + ' found; took: ' + Util.took(start));
                 res.send({success: patches});
